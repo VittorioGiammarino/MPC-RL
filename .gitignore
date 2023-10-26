@@ -1,0 +1,15 @@
+__pycache__/
+
+experiments/**
+make_data_set_local/**
+videos_of_bio_expert/**
+__pycache__/**
+LOG_FILES/**
+QSUBS/**
+expert_static_datasets/**
+expert_source_policies_POMDP/**
+expert_source_policies_POMDP_latent_model/**
+expert_policies/**
+
+*.sh
+*.mp4
