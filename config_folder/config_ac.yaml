@@ -10,7 +10,7 @@ num_train_states: 1100000
 stddev_schedule: 'linear(1.0,0.1,100000)'
 action_repeat: 10
 # train settings
-num_seed_states: 1000
+num_seed_states: 4000
 # eval
 eval_every_states: 2000
 num_eval_episodes: 1
@@ -29,9 +29,9 @@ actor_lr: 1e-4
 critic_lr: 1e-4
 critic_tau: 0.005
 alpha_lr: 1e-4
-batch_size: 256
+batch_size: 1024
 num_expl_steps: ${num_seed_states}
-params_range: [0.001, 1]
+params_range: [0.001, 1.]
 
 #MPC config
 T: 30

@@ -8,9 +8,9 @@ defaults:
 env: CartPole-BT-v0 #CartPole-BT-dL-v0, CartPole-BT-dH-v0
 num_train_states: 1100000
 stddev_schedule: 'linear(1.0,0.1,100000)'
-action_repeat: 10
+action_repeat: 1
 # train settings
-num_seed_states: 100
+num_seed_states: 200
 # eval
 eval_every_states: 2000
 num_eval_episodes: 1
