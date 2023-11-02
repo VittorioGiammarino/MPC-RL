@@ -6,8 +6,8 @@ defaults:
 
 
 env: CartPole-BT-v0 #CartPole-BT-dL-v0, CartPole-BT-dH-v0
-num_train_states: 1100000
-stddev_schedule: 'linear(1.0,0.1,100000)'
+num_train_states: 200000
+stddev_schedule: 'linear(0.3,0.1,10000)'
 action_repeat: 1
 # train settings
 num_seed_states: 200
@@ -31,7 +31,7 @@ critic_tau: 0.005
 alpha_lr: 1e-4
 batch_size: 64
 num_expl_steps: ${num_seed_states}
-params_range: [0.001, 1.]
+params_range: [0.001, 2.]
 
 #MPC config
 T: 30

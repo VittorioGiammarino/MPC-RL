@@ -107,6 +107,15 @@ class Workspace(object):
     def global_episode(self):
         return self._global_episode
     
+    def unsquash(self, value):
+        for i in range(self.net_action_space[0]):
+            low = self.cfg.params_range[i][0]
+            high = self.cfg.params_range[i][1]
+            value[i] = ((value[i]+1.0)/2.0)*(high-low)+low
+            value[i] = np.clip(value[i], low, high)
+
+        return value
+    
     def calculate_QP_cost(self, params):
         goal_weights = torch.tensor(params[0:4])
         ctrl_penalty = params[-1]
@@ -166,7 +175,7 @@ class Workspace(object):
 
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     params_squashed = self.agent.act(observation, self.global_step, eval_mode=True)
-                    params = self.eval_env.unsquash(params_squashed, self.cfg.params_range[1], self.cfg.params_range[0]) #unsquash params
+                    params = self.unsquash(params_squashed) #unsquash params
                     QP_cost_actor = self.calculate_QP_cost(params)
 
                 # take env step
@@ -259,7 +268,7 @@ class Workspace(object):
             # sample action
             with torch.no_grad(), utils.eval_mode(self.agent):
                 params_squashed = self.agent.act(observation, self.global_step, eval_mode=False)
-                params = self.train_env.unsquash(params_squashed, self.cfg.params_range[1], self.cfg.params_range[0])
+                params = self.unsquash(params_squashed)
                 QP_cost_actor = self.calculate_QP_cost(params)
 
             # try to update the agent

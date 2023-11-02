@@ -22,29 +22,29 @@ conda activate cartpole
 
 **RL w/ differentiable MPC**
 ```shell
-python python train_RL_diff_MPC.py agent=ddpg_mpc
+python train_RL_diff_MPC.py agent=ddpg_mpc
 ```
 **RL w/ MPC as part of the environmnent**
 ```shell
-python python train_RL_env_MPC.py agent=sac
+python train_RL_env_MPC.py agent=sac
 ```
 
 ```shell
-python python train_RL_env_MPC.py agent=ddpg
+python train_RL_env_MPC.py agent=ddpg
 ```
 
 Tensorboard is deactivated by default. It can be activated running 
 
 ```shell
-python python train_RL_diff_MPC.py agent=ddpg_mpc use_tb=true
+python train_RL_diff_MPC.py agent=ddpg_mpc use_tb=true
 ```
 
 ```shell
-python python train_RL_env_MPC.py agent=sac use_tb=true
+python train_RL_env_MPC.py agent=sac use_tb=true
 ```
 
 ```shell
-python python train_RL_env_MPC.py agent=ddpg use_tb=true
+python train_RL_env_MPC.py agent=ddpg use_tb=true
 ```
 
 To access tensorboard run in another shell
