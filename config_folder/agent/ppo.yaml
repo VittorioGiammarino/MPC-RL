@@ -1,0 +1,28 @@
+
+agent_name: ppo
+
+agent:
+  _target_: agents.ppo.PPOAgent
+  obs_dim: ??? # to be specified later
+  net_action_dim: ??? # to be specified later
+  ctrl_dim: ???
+  ctrl_horizon_dim: ??? 
+  action_range: ??? # to be specified later
+  device: ${device}
+  hidden_dim: 1024
+  hidden_depth: 2
+  discount: 0.99
+  actor_lr: ${actor_lr}
+  actor_betas: [0.9, 0.999]
+  value_lr: ${value_lr}
+  value_betas: [0.9, 0.999]
+  batch_size: 1024
+  log_std_bounds: [-5, 2]
+  use_tb: ${use_tb}
+  gae_gamma: ${gae_gamma}
+  gae_lambda: ${gae_lambda}
+  epsilon: ${epsilon}
+  TD_enable: ${TD_enable}
+  c1: ${c1}
+  c2: ${c2}
+  entropy_enable: ${entropy_enable}

@@ -7,11 +7,11 @@ import hydra
 import gym
 import gym_CartPole_BT
 import numpy as np
+import time
 
 import torch
 from utils_folder import utils
 from logger_folder.logger import Logger
-from buffers.replay_buffer import ReplayBuffer
 from record_plot import Recorder
 import mpc.mpc as mpc
 
@@ -59,8 +59,10 @@ class Workspace(object):
                                   self.cfg.mpc)
         
         self.timer = utils.Timer()
-        self._global_step = 0
-        self._global_episode = 0
+        self.total_steps = 0
+        self.total_episodes = 0
+        self.total_grad_steps = 0
+        self.total_number_of_training_steps = self.cfg.total_number_of_training_steps
         
     def setup(self):
         # create logger
@@ -76,11 +78,6 @@ class Workspace(object):
         self.ctrl_horizon_space = (self.train_env.action_space.shape[0]*self.cfg.T,)
         self.ctrl_dim = self.train_env.action_space.shape
         self.net_action_space = (self.ctrl_dim[0]+self.train_env.observation_space_dim[0],) # 4 weights parameters for the Q-matrix + 1 for the control penalty
-
-        self.replay_buffer = ReplayBuffer(self.train_env.full_observation_space_dim,
-                                          self.train_env.observation_space_dim,
-                                          self.net_action_space, int(self.cfg.replay_buffer_size),
-                                          self.device)
 
         self.recorder = Recorder(self.work_dir)
 
@@ -99,14 +96,6 @@ class Workspace(object):
         p = p.repeat(self.cfg.T, self.N_BATCH, 1)
         self.QP_cost = mpc.QuadCost(Q, p)  # T x B x nx+nu 
         
-    @property
-    def global_step(self):
-        return self._global_step
-
-    @property
-    def global_episode(self):
-        return self._global_episode
-    
     def unsquash(self, value):
         for i in range(self.net_action_space[0]):
             low = self.cfg.params_range[i][0]
@@ -159,131 +148,41 @@ class Workspace(object):
         self.recorder.save(f'Initial_MPC_controller')
         print(f"Initial MPC controller reward: {total_reward / episode}")
 
-    def eval(self):
-        step, episode, total_reward = 0, 0, 0
-        eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
-        self.recorder.init(self.eval_env, self.net_action_space[0], self.cfg.num_eval_episodes)
+    def single_episode(self):
+        time_step = 0
+        episode_reward = 0
+        episode = 0
+        start = time.time()
 
-        while eval_until_episode(episode):
-            observation = self.eval_env.reset()
-            self.agent.reset()
+        self.recorder.init(self.train_env, self.net_action_space[0], 1)
 
-            done = False
-            u_init = None
-
-            while not done:
-
-                with torch.no_grad(), utils.eval_mode(self.agent):
-                    params_squashed = self.agent.act(observation, self.global_step, eval_mode=True)
-                    params = self.unsquash(params_squashed) #unsquash params
-                    QP_cost_actor = self.calculate_QP_cost(params)
-
-                    print(QP_cost_actor)
-
-                # take env step
-                reward = 0
-                discount = 0.99
-
-                for i in range(self.cfg.action_repeat):
-
-                    # MPC start here
-                    state = self.eval_env.state.copy()
-                    state = torch.tensor(state).view(1, -1)
-                    
-                    # compute action based on current state, dynamics, and cost
-                    nominal_states, nominal_u, nominal_objs = self.mpc_agent(state, 
-                                                                            QP_cost_actor, 
-                                                                            EnvMismatchedDynamics(self.eval_env), 
-                                                                            u_init)
-                    u = nominal_u[0]  # take first planned action
-                    u_init = torch.cat((nominal_u[1:], torch.zeros(1, self.N_BATCH, self.nu)), dim=0)
-                    assert u.ndim == 2 and u.shape[0] == self.eval_env.action_space.shape[0]
-                    # MPC end
-
-                    # dynamic step
-                    observation, reward_temp, done, info = self.eval_env.step_dynamic(u.detach().cpu().numpy()[0])
-
-                    reward += (reward_temp or 0.0)*discount
-                    discount *= self.agent.discount
-                    self.recorder.record(info, params, episode)
-                    step += 1
-                    if done:
-                        break
-
-                total_reward += reward
-
-            episode += 1
-            
-        self.recorder.save(f'{self.global_step}')
-        with self.logger.log_and_dump_ctx(self.global_step, ty='eval') as log:
-            log('episode_reward', total_reward / episode)
-            log('episode_length', step / episode)
-            log('episode', self.global_episode)
-            log('step', self.global_step)
-
-    def train(self):
-        # predicates
-        train_until_step = utils.Until(self.cfg.num_train_states, self.cfg.action_repeat)
-        seed_until_step = utils.Until(self.cfg.num_seed_states, self.cfg.action_repeat)
-        eval_every_step = utils.Every(self.cfg.eval_every_states, self.cfg.action_repeat)
-
-        episode_step, episode_reward = 0, 0
         observation = self.train_env.reset()
 
-        metrics = None
         done = False
         u_init = None
+        
+        while not done:
 
-        while train_until_step(self.global_step):
-            if done:
-                self._global_episode += 1
-                # wait until all the metrics schema is populated
-                if metrics is not None:
-                    # log stats
-                    elapsed_time, total_time = self.timer.reset()
-                    episode_frame = episode_step * self.cfg.action_repeat
-                    with self.logger.log_and_dump_ctx(self.global_step, ty='train') as log:
-                        log('fps', episode_frame / elapsed_time)
-                        log('total_time', total_time)
-                        log('episode_reward', episode_reward)
-                        log('episode_length', episode_frame)
-                        log('episode', self.global_episode)
-                        log('buffer_size', len(self.replay_buffer))
-                        log('step', self.global_step)
-
-                # reset env
-                observation = self.train_env.reset()
-
-                episode_step = 0
-                episode_reward = 0
-                u_init = None
-
-            # try to evaluate
-            if eval_every_step(self.global_step):
-                self.logger.log('eval_total_time', self.timer.total_time(), self.global_step)
-                self.eval()
-
-                # try to save snapshot
-                if self.cfg.save_snapshot:
-                    self.save_snapshot()
-
-            # sample action
             with torch.no_grad(), utils.eval_mode(self.agent):
-                params_squashed = self.agent.act(observation, self.global_step, eval_mode=False)
-                params = self.unsquash(params_squashed)
+                params_squashed, dist = self.agent.act(observation, self.total_steps, eval_mode=False)
+                params_copy = np.copy(params_squashed)
+                params = self.unsquash(params_squashed) #unsquash params
                 QP_cost_actor = self.calculate_QP_cost(params)
-
-            # try to update the agent
-            if not seed_until_step(self.global_step):
-                metrics = self.agent.update(self.replay_buffer, self.global_step)
-                self.logger.log_metrics(metrics, self.global_step, ty='train')
 
             # take env step
             reward = 0
-            discount = 0.99
+            discount = 0.99   
 
             for i in range(self.cfg.action_repeat):
-                # MPC start here
+
+                self.states.append(observation.flatten())
+
+                log_pi = dist.log_prob(torch.FloatTensor(params_copy).to(self.device))
+                action_np = np.copy(params_copy).flatten()
+                log_pi_np = log_pi.cpu().numpy().flatten()
+                value = self.agent.value(torch.FloatTensor(observation).to(self.device)).detach().cpu().numpy().flatten()
+
+                # MPC starts here
                 state = self.train_env.state.copy()
                 state = torch.tensor(state).view(1, -1)
                 
@@ -298,22 +197,97 @@ class Workspace(object):
                 # MPC end
 
                 # dynamic step
-                next_obs, reward_temp, done, _ = self.train_env.step_dynamic(u.detach().cpu().numpy()[0])
+                observation, reward_temp, done, info = self.train_env.step_dynamic(u.detach().cpu().numpy()[0])
 
-                reward += (reward_temp or 0.0)*discount
+                self.actions.append(action_np)
+                self.rewards.append(reward_temp)
+                self.log_pis.append(log_pi_np)
+                self.done.append(done)
+                self.values.append(value)
+
+                episode_reward+=reward_temp
                 discount *= self.agent.discount
+                self.recorder.record(info, params, episode)
+                time_step+=1
+                self.total_steps+=1
                 if done:
                     break
+  
+        end = time.time() - start
+        
+        return episode_reward, time_step, end
+                    
+    def generate_rollout(self):
+        self.states = []
+        self.actions = []
+        self.rewards = []
+        self.done = []
+        self.values = []
+        self.log_pis = []
+        
+        samples = {}
+        
+        for _ in range(self.cfg.num_episodes_per_rollout):
+            reward, time_step, time = self.single_episode()
+            self.total_episodes+=1
+            self.log_episode(reward, time_step, time)
+            
+        advantages, returns = self.agent.GAE(self.done, self.rewards, self.values)
+            
+        samples = {'obs': np.array(self.states),
+                   'actions': np.array(self.actions),
+                   'values': np.array(self.values),
+                   'log_pis': np.array(self.log_pis),
+                   'advantages': advantages,
+                   'returns': returns}
+        
+        return samples
+    
+    def minibatch_to_torch(self, minibatch):
+        minibatch_torch = {}
+        for k,v in minibatch.items():
+            minibatch_torch[k] = torch.FloatTensor(v).to(self.device)
+                
+        return minibatch_torch
+        
+    def training_step(self):
+        samples = self.generate_rollout()
+        
+        batch_size = len(samples['values'])
+        
+        for _ in range(self.cfg.num_epochs):
+            indexes = torch.randperm(batch_size)
+            
+            for start in range(0, batch_size, self.cfg.minibatch_size):
+                end = start + self.cfg.minibatch_size
+                minibatch_indexes = indexes[start:end].numpy()
+                minibatch = {}
+                
+                for k,v in samples.items():
+                    minibatch[k] = v[minibatch_indexes]
+                
+                minibatch = self.minibatch_to_torch(minibatch)
+                metrics = self.agent.update(minibatch)
+                self.total_grad_steps+=1
+                
+                if self.cfg.use_tb:
+                    self.logger.log_metrics(metrics, self.total_grad_steps, ty='train')
+                
+    def train(self):
+        for step in range(self.total_number_of_training_steps):
+            self.training_step()
+            
+            if self.cfg.use_tb:
+                with self.logger.log_and_dump_ctx(step, ty='train') as log:
+                    log('step', step)
 
-            next_state = self.train_env.state.copy()
-            done = float(done)
-            done_no_max = 0 if episode_step + 1 == self.train_env.n_steps else done
-            episode_reward += reward
-            self.replay_buffer.add(state, observation, params_squashed, reward, next_state, next_obs, done, done_no_max)
-
-            observation = next_obs
-            episode_step += 1
-            self._global_step += 1
+    def log_episode(self, eval_reward, time_step, time):
+        with self.logger.log_and_dump_ctx(self.total_episodes, ty='eval') as log:
+            log('episode_reward', eval_reward)
+            log('episode_length', time_step)
+            log('total_time', time)
+            log('episode', self.total_episodes)
+            log('step', self.total_steps)
             
     def save_snapshot(self):
         snapshot = self.work_dir / f'snapshot_{self.cfg.task_name}.pt'
@@ -329,11 +303,11 @@ class Workspace(object):
         for k, v in payload.items():
             self.__dict__[k] = v
 
-@hydra.main(config_path='config_folder', config_name='config_ac')
+@hydra.main(config_path='config_folder', config_name='config_PPO')
 def main(cfg):
-    from train_RL_env_MPC import Workspace as W
+    from train_PPO_env_MPC import Workspace as W
     workspace = W(cfg)
-    workspace.eval_MPC()
+    # workspace.eval_MPC()
     workspace.train()
 
 if __name__ == '__main__':

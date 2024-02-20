@@ -1,0 +1,74 @@
+defaults:
+  - _self_
+  - agent@_global_: ppo
+  - mpc@_global_: mpc_agent
+  - override hydra/launcher: submitit_local
+
+env: CartPole-BT-v0 #CartPole-BT-dL-v0, CartPole-BT-dH-v0
+num_train_states: 200000
+stddev_schedule: 'linear(1.0,0.1,100000)'
+action_repeat: 10
+# eval
+eval_every_states: 2000
+num_eval_episodes: 1
+# snapshot
+save_snapshot: false
+# replay buffer
+replay_buffer_size: 1000000
+# misc
+seed: 1
+device: cuda
+save_record: true
+use_tb: false
+# experiment
+experiment: exp
+actor_lr: 1e-4
+value_lr: 1e-4
+batch_size: 1024
+params_range: [[0.99, 1.1], [0.099, 0.11], [0.99, 1.1], [0.099, 0.11], [0.00099, 0.0011]]
+
+#MPC config
+T: 30
+lqr_iter: 5
+verbose: -1
+eps: 1e-2
+exit_unconverged: false
+
+#Value Net
+TD_enable: false
+
+# number of rollouts used for training (note that each rollout can have more than one episode)
+total_number_of_training_steps: 100
+
+#GAE
+num_episodes_per_rollout: 10
+gae_gamma: 0.99
+gae_lambda: 0.99
+
+#PPO
+epsilon: 0.1
+c1: 1
+c2: 1e-5
+
+#optimization
+num_epochs: 1
+minibatch_size: 256
+
+#exploration terms
+entropy_enable: true
+
+  
+hydra:
+  run:
+    dir: ./experiments/exp_${agent_name}/${now:%Y.%m.%d}_${now:%H%M}_${hydra.job.override_dirname}
+  sweep:
+    dir: ./experiments/exp_multirun_${agent_name}
+    subdir: ${now:%Y.%m.%d}_${now:%H%M}_${hydra.job.override_dirname}
+  launcher:
+    timeout_min: 18000000
+    cpus_per_task: 10
+    gpus_per_node: 1
+    tasks_per_node: 1
+    mem_gb: 160
+    nodes: 1
+    submitit_folder: ./experiments/exp_multirun_${agent_name}/${now:%Y.%m.%d}_${now:%H%M}
