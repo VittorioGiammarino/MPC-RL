@@ -37,6 +37,10 @@ python train_RL_env_MPC.py agent=sac
 python train_RL_env_MPC.py agent=ddpg
 ```
 
+```shell
+python train_PPO_env_MPC.py agent=ppo
+```
+
 Tensorboard is deactivated by default. It can be activated running 
 
 ```shell
@@ -49,6 +53,10 @@ python train_RL_env_MPC.py agent=sac use_tb=true
 
 ```shell
 python train_RL_env_MPC.py agent=ddpg use_tb=true
+```
+
+```shell
+python train_PPO_env_MPC.py agent=ppo use_tb=true
 ```
 
 To access tensorboard run in another shell
